@@ -595,8 +595,8 @@
       }
     </style>
 
-    <!--HTML-->
-    <!--#region-->
+    
+    <!--#region HTML-->
 
     <div absolutes>
       <div class="add-song-form"></div>
@@ -737,33 +737,6 @@
     <script>
       //#region ------------------Initializers-(vars)-----------------
 
-      function fix() {
-        // for (let i = 0; i < songs.length; i++) {
-        //   songs[i].type = 1;
-        // }
-        //p(playlists);
-        // p(songs);
-        // p(queue);
-        // p(player.getVideoData());
-        //p($("[dropdown_menu]").data("dropdown_menu"));
-        //$(".accept-menu").toggle();
-
-        //songs[queue[songIndex]].name = player.getVideoData().title;
-        //var cont = $(".queue-list-container");
-        //cont.scrollTop(
-        //  cont.find(`[data-song-id="${queue[songIndex]}"`).offset().top -
-        //    cont.offset().top +
-        //    cont.scrollTop()
-        //);
-        // duration = audio.duration
-        // 		$("#length").html(function () {
-        //       return `${Math.floor(
-        //         duration / 60
-        //       )}:${Math.floor(duration % 60) < 10 ? `0${Math.floor(duration % 60)}` : Math.floor(duration % 60)}`;
-        //     });
-        A3();
-      }
-
       var input = document.querySelector("input");
       //var i=0;
       var songs = [];
@@ -792,6 +765,7 @@
       var fade_bool = false;
       var end_fade = false;
       var is_typing = false;
+			var boob = false
 
       var slider = document.getElementById("myRange");
       var output = document.getElementById("volumeNum");
@@ -804,6 +778,12 @@
 
       var shift = false;
       var test;
+      var songFile;
+
+      var ctx = new AudioContext();
+      var gain = ctx.createGain();
+      gain.connect(ctx.destination);
+      var source; // = ctx.createBufferSource();
 
       var duration;
       var elapseInterval;
@@ -812,6 +792,36 @@
       var tog_repeat = true;
 
       $(document).ready($(".accept-menu").hide());
+      $(document).ready(async () => {
+        await fetch("/load")
+          .then((res) => res.json())
+          .then((res_data) => (data = res_data))
+          .catch((err) => p("failed to get songs data: " + err));
+
+        temp = [...songs];
+        songs = data.songs;
+        songs.push(...temp);
+
+        temp = [...playlists];
+        playlists = data.playlists;
+        playlists.push(...temp);
+
+        $("#myRange").val(data.config.volume);
+        songIndex = data.config.songIndex;
+        time = data.config.time;
+        tog_shuffle = data.config.shuffle;
+        column_sort = data.config.column;
+
+        loadPl();
+        loadSongs();
+
+        precleanUp();
+
+        if (column_sort) {
+          $("#tt").css("flex-direction", "column-reverse");
+          $(".bi-arrow-bar-up").attr("class", "bi bi-arrow-bar-down bim");
+        }
+      });
 
       //var audio_fade = setInterval()
 
@@ -826,6 +836,18 @@
       //#endregion
 
       //#region ------------------Loading-----------------
+
+      async function fix() {
+        // if(ctx.state == "running")
+        // ctx.suspend()
+        // else
+        // ctx.resume()
+
+        //	gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        
+        //	p(ctx.state);//running
+				boob = true;
+      }
 
       input.addEventListener("change", () => {
         // songs file selected (ALSO IS SOMEHWOW RUNNING FUCNTION ASYC???)
@@ -918,6 +940,8 @@
           if (playlists[i].name == name) return i;
 
         return -1;
+
+        playlists.findIndex((el) => el.name == name);
       }
 
       function download(filename, text) {
@@ -946,6 +970,8 @@
           column: column_sort,
         };
 
+        if (songs == null || config == null || data == null) return;
+
         var dataS = {
           config: config,
           songs: songs,
@@ -955,34 +981,50 @@
         download("test.json", str);
       }
 
-      function songBuilder(id_num, im_link_id, name, type) {
-        switch (type) {
-          case 0:
-            return `<div class="song" id="song${id_num}" data-song-id="${id_num}" data-type="all">
-						<div class="row no-click">
-      						<img src="https://storage.googleapis.com/monstercat/share.png"
-      						class="crop"
-      						alt="" />
-      						<div>${eval(id_num + 1)}: ${name}</div>
-      					</div>
-      					<dd>
-               		<i class="bi bi-three-dots"></i>
-              	</dd>
-						</div>`;
+      AutoSave = () => {
+        var config = {
+          volume: parseInt($("#myRange").val()),
+          songIndex: queue[songIndex],
+          time: time,
+          shuffle: tog_shuffle,
+          column: column_sort,
+        };
 
-          case 1:
-            return `<div class="song" id="song${id_num}" data-song-id="${id_num}" data-type="all">
-      					<div class="row no-click">
-      						<img src="http://img.youtube.com/vi/${im_link_id}/0.jpg"
-      						class="crop"
-      						alt="" />
-      						<div>${eval(id_num + 1)}: ${name}</div>
-      					</div>
-      					<dd>
-               		<i class="bi bi-three-dots"></i>
-              	</dd>
-      				</div>`;
-        }
+        if (songs == null || config == null || data == null) return;
+
+        var dataS = {
+          config: config,
+          songs: songs,
+          playlists: playlists,
+        };
+
+        let xhr = new XMLHttpRequest();
+        xhr.open("POST", "/save", true);
+        xhr.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
+
+        xhr.onreadystatechange = function () {
+          if (xhr.readyState === 4 && xhr.status === 200) p(this.responseText);
+        };
+
+        xhr.send(JSON.stringify(dataS));
+      };
+
+      function songBuilder(id_num, im_link_id, name) {
+        return `<div class="song" id="song${id_num}" data-song-id="${id_num}" data-type="all">
+        					<div class="row no-click">
+        						<img src="${
+                      im_link_id == "offline"
+                        ? `https://storage.googleapis.com/monstercat/share.png`
+                        : `http://img.youtube.com/vi/${im_link_id}/0.jpg`
+                    }"
+        						class="crop"
+        						alt="" />
+        						<div>${eval(id_num + 1)}: ${name}</div>
+        					</div>
+        					<dd>
+                 		<i class="bi bi-three-dots"></i>
+                	</dd>
+        				</div>`;
       }
 
       function precleanUp() {
@@ -998,6 +1040,8 @@
         progress.style.width = "0%";
         elapsed.html("0:00");
 
+				var still = queue[songIndex];
+
         $(".playing").removeClass("playing");
         $(`[data-song-id="${queue[songIndex]}"]`).addClass("playing");
 
@@ -1011,9 +1055,26 @@
         setVolume(slider.value);
         switch (currentType) {
           case 0:
-            audio.src = the_song.link;
-            audio.play();
-          //	crourotineTest();
+						if(source != null) {
+							if(source.buffer != null)
+							source.buffer = null;
+						}
+            var path = the_song.link.replace(/\\/g, "KJTGGTKGJ");
+            p(path);
+            fetch("/song/" + path)
+              .then((res) => res.arrayBuffer())
+              .then((ab) => ctx.decodeAudioData(ab))
+              .then((decodedAudio) => {
+                songFile = decodedAudio;
+              })
+              .then(() => {
+								if(boob) source.stop(0)
+                source = ctx.createBufferSource();
+                source.buffer = songFile;
+                source.connect(gain);
+								p('playing Song')
+                source.start(0);
+              });
 
           case 1:
             // player.setVolume(slider.value);
@@ -1028,7 +1089,6 @@
       }
 
       function clickedSong(i) {
-        p(i);
         if (!Number.isInteger(i)) {
           p("clicked song id is not a number!");
           return;
@@ -1087,7 +1147,7 @@
           $(temp).attr("class", "bi-star resize");
         }
 
-				LoadDuration()
+        // LoadDuration();
         //	$(`[data-song-id="${queue[songIndex]}"`)[0].scrollIntoView();
       }
 
@@ -1144,51 +1204,51 @@
       function buttonAddSong() {
         var form = $(".add-song-form");
         var formContent = `<div class="col" id="forma">
-      <div>Name</div>
-      <input class="form-option" id="name" />
+        <div>Name</div>
+        <input class="form-option" id="name" />
 
-      <row>
-        <column style="width: 70%">
-          <div>Link</div>
-          <input class="form-option" id="link" />
-        </column>
+        <row>
+          <column style="width: 70%">
+            <div>Link</div>
+            <input class="form-option" id="link" />
+          </column>
 
-        <column style="width: 30%">
-          <div>Type</div>
-          <div class="form-option" style="background-color: #d3d3d3" id="type">
-            a
-          </div>
-        </column>
-      </row>
+          <column style="width: 30%">
+            <div>Type</div>
+            <input class="form-option" style="background-color: #d3d3d3" id="type"/>
 
-      <row>
-        <column>
-          <div>Start Time</div>
-          <input class="form-option" id="startTime" />
-        </column>
-        <column>
-          <div>End Time</div>
-          <input class="form-option" id="endTime" />
-        </column>
-      </row>
 
-      <row>
-        <button
-          class="form-option"
-          style="width: 50%"
-          onclick="submitNewSong()"
-        >
-          Add Song
-        </button>
-        <button
-          class="form-option"
-          style="width: 50%"
-          onclick="closeSongForm()"
-        >
-          Cancel
-        </button>
-      </row>
-    </div>`;
+          </column>
+        </row>
+
+        <row>
+          <column>
+            <div>Start Time</div>
+            <input class="form-option" id="startTime" />
+          </column>
+          <column>
+            <div>End Time</div>
+            <input class="form-option" id="endTime" />
+          </column>
+        </row>
+
+        <row>
+          <button
+            class="form-option"
+            style="width: 50%"
+            onclick="submitNewSong()"
+          >
+            Add Song
+          </button>
+          <button
+            class="form-option"
+            style="width: 50%"
+            onclick="closeSongForm()"
+          >
+            Cancel
+          </button>
+        </row>
+      </div>`;
 
         //formContent = $("#forma");
         form.html(formContent);
@@ -1200,43 +1260,68 @@
       function submitNewSong() {
         var n = $("#name").val();
         var l = $("#link").val();
+        var t = $("#type").val();
 
         if (!l || !n) {
+          p("invalid");
           closeSongForm();
           return;
         }
 
-        var links = l.split(" ");
+        var links = l.split("|");
         p(links);
 
-        for (let i = 0; i < links.length; i++) {
-          var check = linkParser(links[i]);
-          if (check !== "") {
-            var sng = {
-              name: n,
-              link: check,
-              id: idParser(check),
-              playlists: [],
-            };
-            songs.push(sng);
-            queue.push(songs.length - 1);
-            $("#form").html("");
+        //   for (let i = 0; i < links.length; i++) {
+        if (t == 0) {
+          var sng = {
+            name: n,
+            link: l,
+            id: "offline",
+            playlists: [],
+            favorited: false,
+            type: 0,
+          };
+          songs.push(sng);
+          queue.push(songs.length - 1);
+          $("#form").html("");
 
-            $("#tt")[0].innerHTML += songBuilder(
-              songs.length - 1,
-              songs[songs.length - 1].id,
-              n
-            );
-          }
+          $("#tt")[0].innerHTML += songBuilder(
+            songs.length - 1,
+            songs[songs.length - 1].id,
+            n
+          );
         }
+        // var check = linkParser(links[i]);
+        // if (check !== "") {
+        //   var sng = {
+        //     name: n,
+        //     link: check,
+        //     id: idParser(check),
+        //     playlists: [],
+        //     favorited: false,
+        //     type: 0,
+        //   };
+        //   songs.push(sng);
+        //   queue.push(songs.length - 1);
+        //   $("#form").html("");
+
+        //   $("#tt")[0].innerHTML += songBuilder(
+        //     songs.length - 1,
+        //     songs[songs.length - 1].id,
+        //     n,
+        // 		0
+        //   );
+        // }
+        // }
+
         closeSongForm();
       }
 
       function buttonAddPlaylist() {
         var plForm = $(".playlist-form");
         var plFormContent = `Name
-      					<input id="pname">
-      					<button onclick="submitPlaylist()">Create</button>`;
+        					<input id="pname">
+        					<button onclick="submitPlaylist()">Create</button>`;
 
         plForm.html(plFormContent);
         $("#pbut").hide();
@@ -1261,7 +1346,7 @@
         $("#playlists").append(`<div class="playlist" id="playlist${
           playlists.length
         }"
-      				 onclick=openPl(${playlists.length - 1})>${eval(
+        				 onclick=openPl(${playlists.length - 1})>${eval(
           playlists.length
         )}: ${n}</div>`);
       }
@@ -1283,8 +1368,8 @@
       function setVolume(v) {
         switch (currentType) {
           case 0:
-            audio.volume = (v / 100) * 0.45;
-            p(audio.volume);
+            gain.gain.setValueAtTime(v / 100, ctx.currentTime);
+            //audio.volume = (v / 100) * 0.45;
             break;
 
           case 1:
@@ -1337,22 +1422,23 @@
         //remove
         switch (i) {
           case 0:
-            audio.pause();
+            source.stop();
             break;
 
           case 1:
             player.pauseVideo();
-            $("#sng").hide();
+            // $("#sng").hide();
             break;
         }
 
         //boot engine
         switch (j) {
           case 0:
+						ctx.resume()
             break;
 
           case 1:
-            $("#sng").show();
+            //$("#sng").show();
             break;
         }
       }
@@ -1467,16 +1553,16 @@
       function editSong(id) {
         var form = $(".add-song-form");
         var formContent = `Name
-      					<input class="form-option" id="name" value="${songs[id].name}">
-      					Link
-      					<input class="form-option" id="link" value="${songs[id].link}">
-      					Start Time
-      					<input class="form-option" id="startTime">
-      					End Time
-      					<input class="form-option" id="endTime">
+        					<input class="form-option" id="name" value="${songs[id].name}">
+        					Link
+        					<input class="form-option" id="link" value="${songs[id].link}">
+        					Start Time
+        					<input class="form-option" id="startTime">
+        					End Time
+        					<input class="form-option" id="endTime">
 
-      					<button class="form-option" onclick="submitEditedSong(${id})">Edit Song</button>
-      					<button class="form-option" onclick="closeSongForm()">Cancel</button>`;
+        					<button class="form-option" onclick="submitEditedSong(${id})">Edit Song</button>
+        					<button class="form-option" onclick="closeSongForm()">Cancel</button>`;
 
         form.html(formContent);
         form.addClass("active");
@@ -1495,7 +1581,8 @@
         $(`#song${id}`)[0].outerHTML = songBuilder(
           id,
           songs[id].id,
-          songs[id].name
+          songs[id].name,
+          songs[id].type
         );
 
         updateHUDInfo(songs[id]);
@@ -1559,23 +1646,23 @@
           default: {
             p(type);
             content = `<div title="play" class="dd-option">Play</div>
-                <div title="queue-next" class="dd-option">Play Next</div>
-                <div title="queue" class="dd-option">Queue</div>
-      					<hr />
-      					<div title="favorite" class="dd-option">${
-                  songs[hoverSongId].favorited ? "Unfavorite" : "Favorite"
-                }</div>
-                <div title="add-to-playlist" class="dd-option">Add to playlist</div>
-      					${
-                  type == "inplaylist"
-                    ? `<div title="remove-from-playlist" class="dd-option">
-                  Remove From Playlist
-                </div>`
-                    : ""
-                }
-                <hr />
-                <div title="edit" class="dd-option">Edit</div>
-                <div title="delete" class="dd-option" style="color: red">Delete</div>`;
+                  <div title="queue-next" class="dd-option">Play Next</div>
+                  <div title="queue" class="dd-option">Queue</div>
+        					<hr />
+        					<div title="favorite" class="dd-option">${
+                    songs[hoverSongId].favorited ? "Unfavorite" : "Favorite"
+                  }</div>
+                  <div title="add-to-playlist" class="dd-option">Add to playlist</div>
+        					${
+                    type == "inplaylist"
+                      ? `<div title="remove-from-playlist" class="dd-option">
+                    Remove From Playlist
+                  </div>`
+                      : ""
+                  }
+                  <hr />
+                  <div title="edit" class="dd-option">Edit</div>
+                  <div title="delete" class="dd-option" style="color: red">Delete</div>`;
           }
         }
         contextMenu.html(content);
@@ -1614,7 +1701,7 @@
           await delay(delays);
           start = eval(start + add);
           if (increasing && start >= end) {
-            setVolume(end);
+            setVolume(slider.value);
             return;
           }
           if (!increasing && start <= end) {
@@ -1705,7 +1792,7 @@
             break;
           }
           case YT.PlayerState.BUFFERING: {
-            $("[play-pause-button]").attr("class", "arc");
+            //$("[play-pause-button]").attr("class", "arc");
             break;
           }
           case YT.PlayerState.CUED: {
@@ -1744,7 +1831,7 @@
       function pauseSong() {
         switch (currentType) {
           case 0:
-            audio.pause();
+            ctx.suspend();
             break;
 
           case 1:
@@ -1757,7 +1844,7 @@
       function ResumeSong() {
         switch (currentType) {
           case 0:
-            audio.play();
+            ctx.resume();
             break;
 
           case 1:
@@ -1960,7 +2047,6 @@
             break;
           }
           case "remove-from-playlist": {
-            p(songs[hoverSongId]);
             var the_playlist = playlists[playlistIndex];
             //find where deleting song is in the playlist
             var ind = the_playlist.songs.indexOf(hoverSongId);
@@ -2007,8 +2093,6 @@
               //find where deleting song is in the playlist
               var ind = playlists[playlistId].songs.indexOf(hoverSongId);
               if (ind == -1) return;
-
-              p(element);
               //splice deleting song
               playlists[playlistId].songs.splice(ind, 1);
               // move positions for songs after it down (couldve just loop through
@@ -2029,6 +2113,7 @@
             songs.splice(hoverSongId, 1);
             hoverSongElement.remove();
             loadSongs();
+            //AutoSave()
             break;
           }
 
@@ -2152,6 +2237,14 @@
 
       audio.addEventListener("ended", nextSong);
       audio.addEventListener("timeupdate", updateProgress);
+
+      window.addEventListener(
+        "beforeunload",
+        function (e) {
+          AutoSave();
+        },
+        false
+      );
 
       search.on("input", (e) => {
         if (!(e.target.value === "")) {
