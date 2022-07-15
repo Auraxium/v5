@@ -23,6 +23,8 @@
     <script type="application/javascript">
       document.insertCohort = null;
     </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.0.0-alpha.1/axios.min.js"></script>
   </head>
 
   <body>
@@ -56,6 +58,8 @@
         -ms-user-select: none;
         user-select: none;
       }
+
+      /* @import url("https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"); */
 
       ::-webkit-scrollbar {
         display: none;
@@ -105,7 +109,7 @@
 
         /* border-style: solid; */
 
-        /* height: 100%; */
+        height: 100%;
         border-style: solid;
         border-width: 2px;
       }
@@ -134,6 +138,10 @@
         width: 100%;
         height: 100px;
         background-color: #04aa6d;
+
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
       }
 
       #st {
@@ -218,6 +226,9 @@
       .crop {
         height: 50px;
         width: 50px;
+        /* border: 1px solid black; */
+        background-position: center;
+        background-size: cover;
       }
 
       .form {
@@ -404,6 +415,14 @@
 
       .no-click {
         pointer-events: none;
+      }
+
+      .pictest {
+        width: 275px;
+        height: 275px;
+        border: 1px solid black;
+        /* background-position: center; */
+        /* background-size: cover; */
       }
 
       /*#endregion */
@@ -595,7 +614,6 @@
       }
     </style>
 
-    
     <!--#region HTML-->
 
     <div absolutes>
@@ -608,6 +626,8 @@
         <div id="floatVolume"></div>
       </div>
 
+      <div class="dropdown-menu" id="context-memu" dropdown_menu></div>
+
       <div class="form-blur" form-blur></div>
 
       <audio src="" id="audio"></audio>
@@ -619,7 +639,7 @@
       <div>name</div>
       <div>is</div>
       <div>
-        <input type="file" name="" id="" />
+        <input type="file" name="" id="JData" />
       </div>
     </div>
 
@@ -647,7 +667,6 @@
             <i class="bi bi-arrow-bar-left"></i>
           </div>
 
-          <div id="form"></div>
           <i class="bi bi-search-heart"></i>
           <div class="pll">
             <div id="pln"></div>
@@ -656,8 +675,6 @@
 
           <div id="sng"></div>
         </div>
-
-        <div class="dropdown-menu" id="context-memu" dropdown_menu></div>
 
         <div>
           <i class="bi bi-three-dots"></i>
@@ -672,7 +689,10 @@
           <div id="st"></div>
         </div>
 
-        <div class="accept-menu"></div>
+        <div class="accept-menu">
+          <div id="selected">0 songs selected</div>
+          <i class="bi bi-three-dots-vertical" data-type="sel"></i>
+        </div>
       </div>
 
       <div class="right">
@@ -756,6 +776,7 @@
       var time = 0;
       var currentType = -1;
       var currentId = -1;
+      var Ftime = -1;
 
       var playing = false;
       var rdy = true;
@@ -765,7 +786,10 @@
       var fade_bool = false;
       var end_fade = false;
       var is_typing = false;
-			var boob = false
+      var boob = false;
+      var fetching = false;
+
+      var fetchQueue;
 
       var slider = document.getElementById("myRange");
       var output = document.getElementById("volumeNum");
@@ -777,13 +801,19 @@
       var contextMenu = $("[dropdown_menu]");
 
       var shift = false;
+      var shift2 = false;
+      var last_clicked;
       var test;
       var songFile;
 
       var ctx = new AudioContext();
       var gain = ctx.createGain();
       gain.connect(ctx.destination);
-      var source; // = ctx.createBufferSource();
+      var source = { buffer: null, stop: (n) => {} };
+
+      var jsmediatags = window.jsmediatags;
+      //var axios = window.axios;
+      // = ctx.createBufferSource();
 
       var duration;
       var elapseInterval;
@@ -791,39 +821,7 @@
       var tog_shuffle = true;
       var tog_repeat = true;
 
-      $(document).ready($(".accept-menu").hide());
-      $(document).ready(async () => {
-        await fetch("/load")
-          .then((res) => res.json())
-          .then((res_data) => (data = res_data))
-          .catch((err) => p("failed to get songs data: " + err));
-
-        temp = [...songs];
-        songs = data.songs;
-        songs.push(...temp);
-
-        temp = [...playlists];
-        playlists = data.playlists;
-        playlists.push(...temp);
-
-        $("#myRange").val(data.config.volume);
-        songIndex = data.config.songIndex;
-        time = data.config.time;
-        tog_shuffle = data.config.shuffle;
-        column_sort = data.config.column;
-
-        loadPl();
-        loadSongs();
-
-        precleanUp();
-
-        if (column_sort) {
-          $("#tt").css("flex-direction", "column-reverse");
-          $(".bi-arrow-bar-up").attr("class", "bi bi-arrow-bar-down bim");
-        }
-      });
-
-      //var audio_fade = setInterval()
+      var url = "http://localhost:8000";
 
       const p = (s) => console.log(s);
 
@@ -833,20 +831,50 @@
       var firstScriptTag = document.getElementsByTagName("script")[0];
       firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
+      $(document).ready($(".accept-menu").hide());
+      $(document).ready(async () => {
+        await fetch(url + "/load")
+          .then((res) => res.json())
+          .then((res_data) => {
+            data = res_data;
+            p(data);
+
+            temp = [...songs];
+            songs = data.songs;
+            songs.push(...temp);
+
+            temp = [...playlists];
+            playlists = data.playlists;
+            playlists.push(...temp);
+
+            $("#myRange").val(data.config.volume);
+            songIndex = data.config.songIndex;
+            Ftime = data.config.time;
+            tog_shuffle = data.config.shuffle;
+            column_sort = data.config.column;
+
+            if (column_sort) {
+              $("#tt").css("flex-direction", "column-reverse");
+              $(".bi-arrow-bar-up").attr("class", "bi bi-arrow-bar-down bim");
+            }
+
+            loadPl();
+            loadSongs();
+
+            precleanUp();
+          })
+          .catch((err) => {
+            p("(865 <Initializers>) failed to get songs data: " + err);
+          });
+      });
+
       //#endregion
 
       //#region ------------------Loading-----------------
 
       async function fix() {
-        // if(ctx.state == "running")
-        // ctx.suspend()
-        // else
-        // ctx.resume()
-
-        //	gain.gain.setValueAtTime(0.1, ctx.currentTime);
-        
-        //	p(ctx.state);//running
-				boob = true;
+        p(songs);
+        p(queue);
       }
 
       input.addEventListener("change", () => {
@@ -871,7 +899,7 @@
 
           $("#myRange").val(data.config.volume);
           songIndex = data.config.songIndex;
-          time = data.config.time;
+          Ftime = data.config.time;
           tog_shuffle = data.config.shuffle;
           column_sort = data.config.column;
 
@@ -921,6 +949,8 @@
           if (songs[i].favorited) favorites.push(i);
 
           str += songBuilder(i, songs[i].id, songs[i].name, songs[i].type);
+
+          //if (songs[i].type == 0) ReqCoverArt(i, songs[i].link);
         }
         $("#tt").html(str);
         queue = Array.apply(null, Array(songs.length)).map(function (x, i) {
@@ -931,7 +961,7 @@
           $(".shuffle-button").css("opacity", "1");
         }
 
-        $(document).ready(clickedSong(songIndex));
+        // clickedSong(songIndex);
         updateQueueHUD();
       }
 
@@ -965,7 +995,7 @@
         var config = {
           volume: parseInt($("#myRange").val()),
           songIndex: queue[songIndex],
-          time: time,
+          time: Ftime,
           shuffle: tog_shuffle,
           column: column_sort,
         };
@@ -985,12 +1015,13 @@
         var config = {
           volume: parseInt($("#myRange").val()),
           songIndex: queue[songIndex],
-          time: time,
+          time: Ftime,
           shuffle: tog_shuffle,
           column: column_sort,
         };
 
-        if (songs == null || config == null || data == null) return;
+        p(!songs || !config || !data);
+        if (!songs || !config || !data) return;
 
         var dataS = {
           config: config,
@@ -998,8 +1029,10 @@
           playlists: playlists,
         };
 
+        //fetch(url + "/save", { method: "post"})
+
         let xhr = new XMLHttpRequest();
-        xhr.open("POST", "/save", true);
+        xhr.open("POST", url + "/save", true);
         xhr.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
 
         xhr.onreadystatechange = function () {
@@ -1009,23 +1042,55 @@
         xhr.send(JSON.stringify(dataS));
       };
 
-      function songBuilder(id_num, im_link_id, name) {
-        return `<div class="song" id="song${id_num}" data-song-id="${id_num}" data-type="all">
-        					<div class="row no-click">
-        						<img src="${
-                      im_link_id == "offline"
-                        ? `https://storage.googleapis.com/monstercat/share.png`
-                        : `http://img.youtube.com/vi/${im_link_id}/0.jpg`
-                    }"
-        						class="crop"
-        						alt="" />
-        						<div>${eval(id_num + 1)}: ${name}</div>
-        					</div>
-        					<dd>
-                 		<i class="bi bi-three-dots"></i>
-                	</dd>
-        				</div>`;
+      function songBuilder(id_num, im_link_id, name, type) {
+        // <pic style=""
+        // 					class="crop"
+        // 					alt=""></pic>
+        switch (type) {
+          case 0:
+            return `<div class="song" id="song${id_num}" data-song-id="${id_num}" data-type="all">
+						<div class="row no-click">
+							<img src="${im_link_id}"
+      						class="crop"
+      						alt="" />
+      						<div>${eval(id_num + 1)}: ${name}</div>
+      					</div>
+      					<dd>
+               		<i class="bi bi-three-dots"></i>
+              	</dd>
+						</div>`;
+
+          case 1:
+            return `<div class="song" id="song${id_num}" data-song-id="${id_num}" data-type="all">
+      					<div class="row no-click">
+      						<img src="http://img.youtube.com/vi/${im_link_id}/0.jpg"
+      						class="crop"
+      						alt="" />
+      						<div>${eval(id_num + 1)}: ${name}</div>
+      					</div>
+      					<dd>
+               		<i class="bi bi-three-dots"></i>
+              	</dd>
+      				</div>`;
+        }
       }
+
+      ReqCoverArt = async (id, sng) => {
+        var ll = sng.replace(/\\/g, "☹☸☼☺☿☾☻").replace(/\//g, "☹☸☼☺☿☾☻");
+        fetch(url + "/art/" + ll, { method: "post" })
+          .then((res) => res.text())
+          .then((txt) => {
+            // $(`[data-song-id="${id}"]`).find('pic').css("background-image",
+            // `url(data:image/jpeg;base64,${window.btoa(txt)})`);
+
+            $(`[data-song-id="${id}"]`)
+              .find("img")
+              .attr("src", `data:image/jpeg;base64,${window.btoa(txt)}`);
+          })
+          .catch((err) =>
+            p("<ReqCoverArt()> failed to get song cover: " + err)
+          );
+      };
 
       function precleanUp() {
         $("#st").hide();
@@ -1036,11 +1101,19 @@
 
       //#region Song players and HUD
       async function playSong() {
+        seek_ready = false;
+
         time = 0;
+
         progress.style.width = "0%";
         elapsed.html("0:00");
 
-				var still = queue[songIndex];
+        clearInterval(elapseInterval);
+        elapseInterval = null;
+
+        Ftime = 0;
+
+        var still = queue[songIndex];
 
         $(".playing").removeClass("playing");
         $(`[data-song-id="${queue[songIndex]}"]`).addClass("playing");
@@ -1050,31 +1123,60 @@
         currentType = the_song.type;
         currentId = queue[songIndex];
 
-        updateHUDInfo(the_song);
         // updateQueueHUD();
-        setVolume(slider.value);
+
         switch (currentType) {
           case 0:
-						if(source != null) {
-							if(source.buffer != null)
-							source.buffer = null;
-						}
-            var path = the_song.link.replace(/\\/g, "KJTGGTKGJ");
-            p(path);
-            fetch("/song/" + path)
-              .then((res) => res.arrayBuffer())
-              .then((ab) => ctx.decodeAudioData(ab))
+            if (source.buffer != null) source.buffer = null;
+
+            var path = the_song.link
+              .replace(/\\/g, "☹☸☼☺☿☾☻")
+              .replace(/\//g, "☹☸☼☺☿☾☻");
+
+            if (fetching) {
+              fetchQueue = path;
+              return;
+            }
+            fetching = true;
+            await fetch(url + "/song/" + path)
+              .then((res) => {
+                //p(res)
+                return res.arrayBuffer();
+              })
+              .then((ab) => {
+                return ctx.decodeAudioData(ab);
+              })
               .then((decodedAudio) => {
                 songFile = decodedAudio;
               })
               .then(() => {
-								if(boob) source.stop(0)
+                source.stop(0);
+                fetching = false;
+                if (fetchQueue != null) {
+                  fetchQueue = null;
+                  playSong();
+
+                  return;
+                }
                 source = ctx.createBufferSource();
                 source.buffer = songFile;
                 source.connect(gain);
-								p('playing Song')
-                source.start(0);
+                //p("playing Song");
+                source.start(0, Ftime);
+                //$(source).on("ended", (e) => nextSong());
+
+                duration = source.buffer.duration;
+                if (elapseInterval == null)
+                  elapseInterval = setInterval(UpdateElapsed, 1000);
+                updateHUDInfo(the_song);
+              })
+              .catch((err) => {
+                p(err);
+                fetching = false;
+                nextSong();
               });
+
+            break;
 
           case 1:
             // player.setVolume(slider.value);
@@ -1082,10 +1184,14 @@
 
             player.loadVideoById({
               videoId: the_song.id,
-              startSeconds: 0,
+              startSeconds: Ftime,
             });
+            updateHUDInfo(the_song);
             break;
         }
+
+        await delay(50);
+        setVolume(slider.value);
       }
 
       function clickedSong(i) {
@@ -1147,6 +1253,14 @@
           $(temp).attr("class", "bi-star resize");
         }
 
+        $("#length").html(function () {
+          return `${Math.floor(
+            duration / 60
+          )}:${Math.floor(duration % 60) < 10 ? `0${Math.floor(duration % 60)}` : Math.floor(duration % 60)}`;
+        });
+
+        seek_ready = true;
+
         // LoadDuration();
         //	$(`[data-song-id="${queue[songIndex]}"`)[0].scrollIntoView();
       }
@@ -1163,12 +1277,12 @@
         }
         div.html(str);
 
-        var cont = $(".queue-list-container");
-        cont.scrollTop(
-          cont.find(`[data-song-id="${queue[songIndex]}"`).offset().top -
-            cont.offset().top +
-            cont.scrollTop()
-        );
+        //var cont = $(".queue-list-container");
+        //cont.scrollTop(
+        //  cont.find(`[data-song-id="${queue[songIndex]}"`).offset().top -
+        //    cont.offset().top +
+        //    cont.scrollTop()
+        //);
       }
 
       //#endregion
@@ -1285,10 +1399,24 @@
           queue.push(songs.length - 1);
           $("#form").html("");
 
-          $("#tt")[0].innerHTML += songBuilder(
-            songs.length - 1,
-            songs[songs.length - 1].id,
-            n
+          $("#tt").append(
+            songBuilder(songs.length - 1, songs[songs.length - 1].id, n, 0)
+          );
+        } else if (t == 1) {
+          var sng = {
+            name: n,
+            link: linkParser(l),
+            id: idParser(linkParser(l)),
+            playlists: [],
+            favorited: false,
+            type: 1,
+          };
+          songs.push(sng);
+          queue.push(songs.length - 1);
+          $("#form").html("");
+
+          $("#tt").append(
+            songBuilder(songs.length - 1, songs[songs.length - 1].id, n, 1)
           );
         }
         // var check = linkParser(links[i]);
@@ -1376,29 +1504,131 @@
             player.setVolume(v);
             break;
         }
+        volume = v;
       }
+
+      GetTitleAndUurl = (fi) => {
+        return new Promise((resolve, reject) => {
+          jsmediatags.read(fi, {
+            onSuccess: (tag) => {
+              var pdata = tag.tags.picture.data;
+              var format = tag.tags.picture.format;
+              let base64String = "";
+
+              for (let i = 0; i < pdata.length; i++)
+                base64String += String.fromCharCode(pdata[i]);
+
+              var uurl = `data:${format};base64,${window.btoa(base64String)}`;
+              var title = tag.tags.title;
+              resolve({ title, uurl });
+            },
+            onError: (err) => {
+              p(err);
+              reject(err);
+            },
+          });
+        });
+      };
+
+      DragSong = async (ffs) => {
+        var getArr = [];
+
+        var title, uurl;
+
+        for (let i = 0; i < ffs.length; i++) {
+          var fdata = ffs[i];
+
+          jsmediatags.read(fdata, {
+            onSuccess: (tag) => {
+              var pdata = tag.tags.picture.data;
+              var format = tag.tags.picture.format;
+              let base64String = "";
+
+              for (let i = 0; i < pdata.length; i++)
+                base64String += String.fromCharCode(pdata[i]);
+
+              uurl = `data:${format};base64,${window.btoa(base64String)}`;
+              title = tag.tags.title;
+            },
+            onError: (err) => {
+              p(err);
+            },
+          });
+
+          var myFile = new FormData();
+          myFile.append("file", fdata);
+
+          await fetch("/upload", {
+            method: "POST",
+            body: myFile,
+          })
+            .then((res) => res.text())
+            .then((path) => {
+              sng = {
+                filename: ffs[i].name,
+                name: title,
+                link: path,
+                id: "",
+                playlists: [],
+                favorited: false,
+                type: 0,
+                path_found: false,
+              };
+
+              getArr.push({
+                location: songs.length,
+                target: fdata.name,
+                deleteTemp: path,
+              });
+
+              songs.push(sng);
+              p(sng);
+              $("#tt").append(songBuilder(songs.length - 1, uurl, title, 0));
+
+              delete myFile;
+            });
+        }
+
+        p(getArr);
+
+        await axios
+          .post("/dragevent", getArr)
+          .then((res) => res.data.result)
+          .then((json_paths) => {
+            p(json_paths);
+            json_paths.forEach((el) => {
+              songs[el.loc].link = el.newpath;
+            });
+          });
+
+        // await fetch('/dragevent', {method: 'post', body: JSON.stringify(getArr), headers: {'Content-Type': 'application/json'}})
+        // .then(res => res.json().result)
+        // .then(json_paths => {
+        // 	p(typeof json_paths)
+        // 	json_paths.forEach((el) => {
+        //      songs[el.loc].link = el.newpath;
+        //    });
+        // })
+      };
+
+      UpdateElapsed = () => {
+        if (!seek_ready) return;
+
+        if (Ftime > duration - 1) {
+          Ftime = 0;
+          nextSong();
+          return;
+        }
+
+        $("#elapsed").html(() => {
+          var temp = ++Ftime % 60;
+          return `${Math.floor(Ftime / 60)}:${temp < 10 ? `0${temp}` : temp}`;
+        });
+        progress.style.width = `${(Ftime / duration) * 100}%`;
+      };
       //#endregion
 
       //#region misc
-
-      LoadDuration = async () => {
-        var t = 0;
-        while (isNaN(audio.duration)) {
-          await delay(100);
-          t += (new Date() - t) / 100;
-          if (t > 2000) {
-            p("Failed to get audio length");
-            return;
-          }
-        }
-        duration = audio.duration;
-        $("#length").html(function () {
-          return `${Math.floor(
-            duration / 60
-          )}:${Math.floor(duration % 60) < 10 ? `0${Math.floor(duration % 60)}` : Math.floor(duration % 60)}`;
-        });
-        p("finished");
-      };
 
       function GetSongsInView() {
         var nums = [];
@@ -1417,12 +1647,14 @@
         }
       }
 
-      function ChangeType(i, j) {
+      ChangeType = (i, j) => {
         if (i == j) return;
         //remove
         switch (i) {
           case 0:
             source.stop();
+            ctx.suspend();
+            //clearInterval(elapseInterval)
             break;
 
           case 1:
@@ -1434,14 +1666,15 @@
         //boot engine
         switch (j) {
           case 0:
-						ctx.resume()
+            ctx.resume();
+            //elapseInterval = setInterval(UpdateElapsed, 1000)
             break;
 
           case 1:
             //$("#sng").show();
             break;
         }
-      }
+      };
 
       function linkParser(s) {
         //https://www.youtube.com/watch?v=fgZ-Pyk7G6A&ab_channel=MoriCalliope-Topic
@@ -1506,17 +1739,6 @@
       function setProgress(e) {
         const width = e.target.clientWidth;
         const clickX = e.offsetX;
-        var duration;
-
-        switch (currentType) {
-          case 0:
-            duration = audio.duration;
-            break;
-
-          case 1:
-            duration = player.getDuration();
-            break;
-        }
 
         progress.style.width = `${clamp((clickX / width) * 100, 0, 100)}%`;
 
@@ -1531,24 +1753,51 @@
       function seekTo(e) {
         const width = e.target.clientWidth;
         const clickX = e.offsetX;
-        var duration;
+        //var duration;
 
         switch (currentType) {
           case 0:
-            duration = audio.duration;
-            audio.currentTime = (clickX / width) * duration;
+            source.stop();
+            source = ctx.createBufferSource();
+            source.buffer = songFile;
+            source.connect(gain);
+            source.start(0, clamp((clickX / width) * duration, 0, duration));
             break;
 
           case 1:
-            duration = player.getDuration();
             player.seekTo(
               clamp((clickX / width) * duration, 0, duration),
               true
             );
             break;
         }
-        //p(width);
+        Ftime = Math.floor(clamp((clickX / width) * duration, 0, duration));
       }
+
+      SeekByNum = (v) => {
+        v = clamp(v, 0, duration);
+        $("#elapsed").html(() => {
+          var temp = v % 60;
+          return `${Math.floor(v / 60)}:${temp < 10 ? `0${temp}` : temp}`;
+        });
+        progress.style.width = `${(v / duration) * 100}%`;
+        p(currentType);
+
+        switch (currentType) {
+          case 0:
+            source.stop();
+            source = ctx.createBufferSource();
+            source.buffer = songFile;
+            source.connect(gain);
+            source.start(0, clamp(v, 0, duration));
+
+            break;
+
+          case 1:
+            player.seekTo(v);
+            break;
+        }
+      };
 
       function editSong(id) {
         var form = $(".add-song-form");
@@ -1633,6 +1882,14 @@
         });
       }
 
+      LoadDuration = (v) => {
+        $("#length").html(function () {
+          return `${Math.floor(
+            duration / 60
+          )}:${Math.floor(duration % 60) < 10 ? `0${Math.floor(duration % 60)}` : Math.floor(duration % 60)}`;
+        });
+      };
+
       updateProgress = (e) => {
         const { duration, currentTime } = e.target;
         var progressPercent = (currentTime / duration) * 100;
@@ -1643,50 +1900,56 @@
         var content;
         var type = hoverSongElement.dataset.type;
         switch (type) {
+          case "sel": {
+            content = `<div title="sel-play" class="dd-option">Play</div>
+                <div title="sel-queue-next" class="dd-option">Play Next</div>
+                <div title="sel-queue" class="dd-option">Queue</div>
+								<hr />
+      					<div title="sel-favorite" class="dd-option">Favorite</div>
+                <div title="sel-add-to-playlist" class="dd-option">Add to playlist</div>
+                <hr />
+                <div title="sel-delete" class="dd-option" style="color: red">Delete</div>`;
+            break;
+          }
+
           default: {
             p(type);
             content = `<div title="play" class="dd-option">Play</div>
-                  <div title="queue-next" class="dd-option">Play Next</div>
-                  <div title="queue" class="dd-option">Queue</div>
-        					<hr />
-        					<div title="favorite" class="dd-option">${
-                    songs[hoverSongId].favorited ? "Unfavorite" : "Favorite"
-                  }</div>
-                  <div title="add-to-playlist" class="dd-option">Add to playlist</div>
-        					${
-                    type == "inplaylist"
-                      ? `<div title="remove-from-playlist" class="dd-option">
-                    Remove From Playlist
-                  </div>`
-                      : ""
-                  }
-                  <hr />
-                  <div title="edit" class="dd-option">Edit</div>
-                  <div title="delete" class="dd-option" style="color: red">Delete</div>`;
+                <div title="queue-next" class="dd-option">Play Next</div>
+                <div title="queue" class="dd-option">Queue</div>
+      					<hr />
+      					<div title="favorite" class="dd-option">${
+                  songs[hoverSongId].favorited ? "Unfavorite" : "Favorite"
+                }</div>
+                <div title="add-to-playlist" class="dd-option">Add to playlist</div>
+      					${
+                  type == "inplaylist"
+                    ? `<div title="remove-from-playlist" class="dd-option">
+                  Remove From Playlist
+                </div>`
+                    : ""
+                }
+                <hr />
+								<div title="select" class="dd-option">Select</div>
+                <div title="edit" class="dd-option">Edit</div>
+                <div title="delete" class="dd-option" style="color: red">Delete</div>`;
+            break;
           }
         }
         contextMenu.html(content);
+        contextMenu.show();
 
-        contextMenu.css("top", `${e.pageY - 10}px`);
-        contextMenu.css("left", `${e.pageX - 10}px`);
+        let middlehalf = window.innerHeight / 2;
+        if (e.clientY > middlehalf) {
+          contextMenu.css("top", `${e.pageY - 300}px`);
+          contextMenu.css("left", `${e.pageX - 10}px`);
+        } else {
+          contextMenu.css("top", `${e.pageY - 10}px`);
+          contextMenu.css("left", `${e.pageX - 10}px`);
+        }
 
         contextMenu.addClass("active");
       }
-
-      crourotineTest = async () => {
-        while (isNaN(audio.duration)) {
-          await delay(100);
-          p("terrible");
-          continue;
-        }
-
-        duration = audio.duration;
-        $("#length").html(function () {
-          return `${Math.floor(
-            duration / 60
-          )}:${Math.floor(duration % 60) < 10 ? `0${Math.floor(duration % 60)}` : Math.floor(duration % 60)}`;
-        });
-      };
 
       async function fadeAudio(start, end, iterations, add, delays) {
         if (start == end) {
@@ -1731,44 +1994,48 @@
           },
         });
 
-        var iframeWindow = player.getIframe().contentWindow;
+        //var iframeWindow = player.getIframe().contentWindow;
+        //
+        //var lastTimeUpdate = 0;
 
-        var lastTimeUpdate = 0;
+        // window.addEventListener("message", function (event) {
+        //   if (event.source === iframeWindow) {
+        //     var data = JSON.parse(event.data);
 
-        window.addEventListener("message", function (event) {
-          if (event.source === iframeWindow) {
-            var data = JSON.parse(event.data);
+        //     if (
+        //       data.event === "infoDelivery" &&
+        //       data.info &&
+        //       data.info.currentTime
+        //     ) {
+        //       time = Math.floor(data.info.currentTime);
 
-            if (
-              data.event === "infoDelivery" &&
-              data.info &&
-              data.info.currentTime
-            ) {
-              time = Math.floor(data.info.currentTime);
-
-              if (time !== lastTimeUpdate && seek_ready) {
-                $("#elapsed").html(() => {
-                  var temp = time % 60;
-                  return `${Math.floor(time / 60)}:${
-                    temp < 10 ? `0${temp}` : temp
-                  }`;
-                });
-                progress.style.width = `${(time / duration) * 100}%`;
-              }
-            }
-          }
-        });
+        //       if (time !== lastTimeUpdate && seek_ready) {
+        //         $("#elapsed").html(() => {
+        //           var temp = time % 60;
+        //           return `${Math.floor(time / 60)}:${
+        //             temp < 10 ? `0${temp}` : temp
+        //           }`;
+        //         });
+        //         progress.style.width = `${(time / duration) * 100}%`;
+        //       }
+        //     }
+        //   }
+        // });
       }
 
       function onPlayerReady(event) {
-        event.target.pauseVideo();
+        //event.target.pauseVideo();
+        // clickedSong(songIndex);
       }
 
       function onPlayerStateChange(event) {
+        if (currentType != 1) return;
         switch (event.data) {
           case YT.PlayerState.PLAYING: {
             playing = true;
             duration = event.target.getDuration();
+            if (elapseInterval == null)
+              elapseInterval = setInterval(UpdateElapsed, 1000);
             $("#length").html(function () {
               return `${Math.floor(
                 duration / 60
@@ -1780,19 +2047,23 @@
           }
           case YT.PlayerState.ENDED: {
             playing = false;
-            time = 0;
+            Ftime = 0;
             progress.style.width = "0%";
             elapsed.html("0:00");
             nextSong();
             break;
           }
           case YT.PlayerState.PAUSED: {
-            playing - false;
+            playing = false;
             $("[play-pause-button]").attr("class", "bi-play");
+            clearInterval(elapseInterval);
+            elapseInterval = null;
             break;
           }
           case YT.PlayerState.BUFFERING: {
             //$("[play-pause-button]").attr("class", "arc");
+            clearInterval(elapseInterval);
+            elapseInterval = null;
             break;
           }
           case YT.PlayerState.CUED: {
@@ -1805,7 +2076,8 @@
         player.stopVideo();
       }
 
-      function err() {
+      function err(er) {
+        p(er);
         if (!data) return;
         if (currentType != 1) return;
 
@@ -1816,6 +2088,7 @@
 
       function nextSong() {
         $(`[data-song-id="${queue[songIndex]}"]`).removeClass("playing");
+        Ftime = 0;
 
         songIndex = songIndex > queue.length - 2 ? 0 : songIndex + 1;
         playSong(songIndex);
@@ -1823,15 +2096,19 @@
 
       function prevSong() {
         $(`[data-song-id="${queue[songIndex]}"]`).removeClass("playing");
+        Ftime = 0;
 
         songIndex = songIndex ? songIndex - 1 : queue.length - 1;
         playSong(songIndex);
       }
 
       function pauseSong() {
+        clearInterval(elapseInterval);
+        elapseInterval = null;
         switch (currentType) {
           case 0:
             ctx.suspend();
+            $("[play-pause-button]").attr("class", "bi-play");
             break;
 
           case 1:
@@ -1845,6 +2122,7 @@
         switch (currentType) {
           case 0:
             ctx.resume();
+            $("[play-pause-button]").attr("class", "bi-pause");
             break;
 
           case 1:
@@ -1852,6 +2130,9 @@
             break;
         }
         playing = true;
+
+        if (elapseInterval == null)
+          elapseInterval = setInterval(UpdateElapsed, 1000);
       }
 
       function showVideo() {
@@ -1883,6 +2164,46 @@
       //#endregion
 
       //#region ------------------Listeners---------------------------
+
+      $("#fileSong").on("change", (e) => {
+        const file = e.target.files[0];
+
+        jsmediatags.read(file, {
+          onSuccess: (tag) => {
+            var pdata = tag.tags.picture.data;
+            var format = tag.tags.picture.format;
+            let base64String = "";
+
+            for (let i = 0; i < pdata.length; i++)
+              base64String += String.fromCharCode(pdata[i]);
+
+            var uurl = `url(data:${format};base64,${window.btoa(
+              base64String
+            )})`;
+
+            //document.querySelector('#pictest').style.backgroundImage
+            //= `url(data:${format};base64,${window.btoa(base64String)})`
+
+            sng = {
+              name: tag.tags.title,
+              link: "",
+              id: "",
+              playlists: [],
+              favorited: false,
+              type: 0,
+            };
+
+            p(sng);
+
+            songs.push(sng);
+
+            $("#tt").append(
+              songBuilder(songs.length - 1, uurl, tag.tags.title, 0)
+            );
+          },
+          onError: (err) => p(err),
+        });
+      });
 
       $(".progress-container").on("pointerdown", (e) => {
         seek_ready = false;
@@ -1966,6 +2287,14 @@
 
       $("[form-blur]").click(closeSongForm);
 
+      $(document).on("click", ".bi-three-dots-vertical", (e) => {
+        hoverSongElement = e.target;
+
+        // hoverSongElement.classList.toggle("highlight");
+
+        openContextMenu(e);
+      });
+
       $(".bi-plus-circle-dotted").click((e) => {
         selects = [];
         selecting = true;
@@ -1996,10 +2325,9 @@
       });
 
       $(document).on("click", ".bi-three-dots", (e) => {
-        hoverSongId = parseInt(
-          e.target.parentElement.parentElement.dataset.songId
-        );
         hoverSongElement = e.target.parentElement.parentElement;
+        hoverSongId = parseInt(hoverSongElement.dataset.songId);
+
         hoverSongElement.classList.toggle("highlight");
 
         openContextMenu(e);
@@ -2047,6 +2375,7 @@
             break;
           }
           case "remove-from-playlist": {
+            p(songs[hoverSongId]);
             var the_playlist = playlists[playlistIndex];
             //find where deleting song is in the playlist
             var ind = the_playlist.songs.indexOf(hoverSongId);
@@ -2093,6 +2422,8 @@
               //find where deleting song is in the playlist
               var ind = playlists[playlistId].songs.indexOf(hoverSongId);
               if (ind == -1) return;
+
+              p(element);
               //splice deleting song
               playlists[playlistId].songs.splice(ind, 1);
               // move positions for songs after it down (couldve just loop through
@@ -2108,12 +2439,83 @@
                 })();
                 currentSong.playlists[findIndexForRetrival].position--;
               }
-              playlists[playlistId].size = playlists[playlistId].songs.length;
+              if (playlists[playlistId] != null)
+                playlists[playlistId].size = playlists[playlistId].songs.length;
             }
             songs.splice(hoverSongId, 1);
             hoverSongElement.remove();
             loadSongs();
-            //AutoSave()
+            break;
+          }
+
+          case "select": {
+            selecting = true;
+            $(".accept-menu").show();
+            hoverSongElement.classList.toggle("selected");
+            if (hoverSongElement.classList.contains("selected"))
+              selects.push(hoverSongId);
+            else {
+              selects.splice(selects.indexOf(hoverSongId), 1);
+              if (!selects.length) {
+                selecting = false;
+                $(".accept-menu").hide();
+              }
+            }
+            break;
+          }
+
+          case "sel-delete": {
+            for (let g = 0; g < selects.length; g++) {
+              var sel_num = selects[g];
+              //if(songs[sel_num] == null) continue
+              if (songs[sel_num] != null && songs[sel_num].playlists != null) {
+                for (let i = 0; i < songs[sel_num].playlists.length; i++) {
+                  const element = songs[sel_num].playlists[i];
+                  //find where playlist is in playlists array
+                  var playlistId = FindPlaylistIndexByName(element.name);
+
+                  if (playlistId == -1) break;
+                  //find where deleting song is in the playlist
+                  var ind = playlists[playlistId].songs.indexOf(sel_num);
+                  if (ind == -1) break;
+
+                  // p(element);
+                  //splice deleting song
+                  playlists[playlistId].songs.splice(ind, 1);
+                  // move positions for songs after it down (couldve just loop through
+                  // the songs array and set everysong to its new position but this is
+                  // more effeciant)
+                  p(playlists[playlistId].songs);
+                  for (
+                    let k = ind;
+                    k < playlists[playlistId].songs.length;
+                    k++
+                  ) {
+                    //p(songs[playlists[playlistId].songs[k]])
+                    if (playlists[playlistId].songs[k] == null) continue;
+                    var currentSong = songs[playlists[playlistId].songs[k]];
+                    var findIndexForRetrival = currentSong.playlists.findIndex(
+                      (el) => el.name == element.name
+                    );
+
+                    currentSong.playlists[findIndexForRetrival].position--;
+                  }
+                  if (playlists[playlistId] != null)
+                    playlists[playlistId].size =
+                      playlists[playlistId].songs.length;
+                }
+              }
+              songs[sel_num] = null;
+              $(`[data-song-id="${sel_num}"]`).remove();
+            }
+
+            songs = songs.filter((el) => el !== null);
+            selects = [];
+            selecting = false;
+            $(".accept-menu").hide();
+            //updateQueueHUD()
+            //loadSongs();
+
             break;
           }
 
@@ -2127,11 +2529,58 @@
       $(document).on("mousedown", ".song", (e) => {
         if (e.which != 1) return;
         var id = parseInt(e.target.dataset.songId);
+
+        if (shift) {
+          selecting = true;
+          $(".accept-menu").show();
+        }
+
         if (selecting) {
+          if (shift2 && last_clicked != null) {
+            var tar = e.target.dataset.songId;
+            if ($("#tt").is(":visible")) {
+              var elms = [...document.querySelector("#tt").children];
+              //	p(typeof elms)
+              var first = elms.findIndex((el) => el.dataset.songId == tar);
+              var second = elms.findIndex(
+                (el) => el.dataset.songId == last_clicked
+              );
+
+              if (second < first) {
+                var temp = first;
+                first = second;
+                second = temp;
+              }
+
+              p(first + " " + second);
+
+              for (let q = first; q < second + 1; q++) {
+                $("#song" + q).addClass("selected");
+                if ($("#song" + q)[0].classList.contains("selected"))
+                  selects.push(q);
+                else {
+                  selects.splice(selects.indexOf(id), 1);
+                  if (!selects.length) {
+                    selecting = false;
+                    $(".accept-menu").hide();
+                  }
+                }
+              }
+            }
+
+            return;
+          }
+
           $("#song" + id).toggleClass("selected");
           if (e.target.classList.contains("selected")) selects.push(id);
-          else selects.splice(selects.indexOf(id), 1);
-
+          else {
+            selects.splice(selects.indexOf(id), 1);
+            if (!selects.length) {
+              selecting = false;
+              $(".accept-menu").hide();
+            }
+          }
+          last_clicked = e.target.dataset.songId;
           return;
         }
 
@@ -2151,11 +2600,30 @@
         clickedSong(id);
       });
 
+      $(document).on("mousedown", (e) => {
+        if (
+          selecting &&
+          !e.target.classList.contains("song") &&
+          !e.target.classList.contains("bi-three-dots-vertical") &&
+          !e.target.classList.contains("dd-option") &&
+          !e.target.classList.contains("accept-menu")
+        ) {
+          $(".selected").removeClass("selected");
+          selects = [];
+          selecting = false;
+          $(".accept-menu").hide();
+        }
+      });
+
       $(document).click((e) => {
         //main listeners
 
-        if (!e.target.classList.contains("bi-three-dots"))
+        if (
+          !e.target.classList.contains("bi-three-dots") &&
+          !e.target.classList.contains("bi-three-dots-vertical")
+        ) {
           $("[dropdown_menu]").removeClass("active");
+        }
 
         //   $(`#song${hoverSongId}`).css("background-color", "rgb(33, 33, 33)");
         var item = e.target.classList;
@@ -2221,6 +2689,11 @@
             shift = true;
             break;
           }
+          case 16: {
+            e.preventDefault();
+            shift2 = true;
+            break;
+          }
         }
         //p(e.keyCode)
       });
@@ -2232,7 +2705,24 @@
             shift = false;
             break;
           }
+          case 16: {
+            e.preventDefault();
+            shift2 = false;
+            break;
+          }
         }
+      });
+
+      document.addEventListener("dragover", (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+      });
+
+      document.addEventListener("drop", (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+				DragSong(event.dataTransfer.files)
       });
 
       audio.addEventListener("ended", nextSong);
@@ -2271,7 +2761,6 @@
       slider.oninput = function () {
         setVolume(this.value);
       };
-
       //#endregion
     </script>
   </body>
