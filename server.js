@@ -38,7 +38,12 @@ async function ak() {
 
 //#region ROUTES
 
-app.use(cors({ origin: "*" }));
+app.use(cors({ 
+	origin: "*", 
+	credentials: true,
+	methods: "*",
+	headers: "*"
+}));
 app.use(express.json());
 
 //app.use(bodyParser.urlencoded({ extended: true }));
